@@ -1,3 +1,4 @@
+from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 import os
 
@@ -7,7 +8,19 @@ load_dotenv()
 api_key = os.getenv("GOOGLE_API_KEY")
 
 # APIキーを表示
-print(api_key)
+# print(api_key)
+
+# Geminiとの接続準備
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-flash",
+    google_api_key=api_key
+)
+
+# Geminiへ質問
+response = llm.invoke("こんにちは")
+
+# Geminiの回答を表示
+print(response.content)
 
 # import chainlit as cl
 
