@@ -50,8 +50,10 @@ training-rag-assistant/
     data/
         pdf/
     .venv/
+    .env
     .gitignore
     README.md
+    chainlit.md
 
 ---
 
@@ -60,11 +62,11 @@ training-rag-assistant/
 - GitHub連携完了
 - Chainlit動作確認（Echo Bot）
 - RAG設計フェーズ完了
+- Gemini API連携
 
 ---
 
 ## 🔜 今後の開発予定
-- Gemini API連携
 - RAGパイプライン構築
 - PDFドキュメント対応
 - Retriever実装
