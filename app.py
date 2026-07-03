@@ -7,6 +7,9 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import Chroma
+from langchain_core.prompts.chat import ChatPromptTemplate
+from langchain_core.prompts import MessagesPlaceholder
+from langchain_community.chat_message_histories import ChatMessageHistory
 
 load_dotenv()
 
@@ -27,6 +30,15 @@ embeddings = GoogleGenerativeAIEmbeddings(
 
 # グローバル保存(簡易RAG)
 vectorstore = None
+
+# 履歴の辞書
+store = {}
+
+# ユーザーIDがなければ枠を作る
+def get_session_history(session_id):
+    if session_id not in store:
+        store[session_id] = ChatMessageHistory()
+    return store[session_id]
 
 # 初期化
 @cl.on_chat_start
@@ -59,33 +71,39 @@ async def main(message: cl.Message):
     global vectorstore
     query = message.content
 
+    # ユーザーセッションの取得
+    session_id = cl.user_session.get("id")
+    # 会話を記録するための履歴を作成
+    history = get_session_history(session_id)
+
     # 類似検索
     docs = vectorstore.similarity_search(query, k=3)
-
     # 検索結果を結合してコンテキストとして使用
     context = "\n\n".join([d.page_content for d in docs])
 
-    # プロンプト
-    prompt = f"""
-以下の情報を参考にして回答してください。
-### コンテキスト
-{context}
-### 質問
-{query}
-    """
-    response = llm.invoke(prompt)
+    # プロンプトテンプレートを使用してプロンプトを作成
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """
+         以下の情報を参考にして回答してください。
+
+         ### コンテキスト
+         {context}
+         """),
+        MessagesPlaceholder(variable_name="history"),
+        ("human", "{input}")
+    ])
+
+    prompt_value = prompt.invoke({
+        "context": context,
+        "input": query,
+        "history": history.messages
+    })
+    response = llm.invoke(prompt_value)
+
+    # 履歴に追加
+    history.add_user_message(query)
+    history.add_ai_message(response.content)
 
     # Geminiの回答を表示
     await cl.Message(content=response.content).send()
 
-# # Geminiへ質問
-# response = llm.invoke("こんにちは")
-
-# # Geminiの回答を表示
-# print(response.content)
-
-# # RAGの例
-# @cl.on_message
-# async def main(message: cl.Message):
-#     response = llm.invoke(message.content)
-#     await cl.Message(content=response.content).send()
