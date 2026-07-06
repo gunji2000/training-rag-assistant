@@ -10,6 +10,8 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
+from langchain_core.runnables.history import RunnableWithMessageHistory
+from langchain_core.chat_history import BaseChatMessageHistory
 
 load_dotenv()
 
@@ -35,7 +37,7 @@ vectorstore = None
 store = {}
 
 # ユーザーIDがなければ枠を作る
-def get_session_history(session_id):
+def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
@@ -72,9 +74,7 @@ async def main(message: cl.Message):
     query = message.content
 
     # ユーザーセッションの取得
-    session_id = cl.user_session.get("id")
-    # 会話を記録するための履歴を作成
-    history = get_session_history(session_id)
+    session_id = cl.context.sessionid
 
     # 類似検索
     docs = vectorstore.similarity_search(query, k=3)
@@ -93,16 +93,26 @@ async def main(message: cl.Message):
         ("human", "{input}")
     ])
 
-    prompt_value = prompt.invoke({
-        "context": context,
-        "input": query,
-        "history": history.messages
-    })
-    response = llm.invoke(prompt_value)
+    chain = prompt | llm
 
-    # 履歴に追加
-    history.add_user_message(query)
-    history.add_ai_message(response.content)
+    chain_with_history = RunnableWithMessageHistory(
+        chain,
+        get_session_history,
+        input_message_key="input",
+        history_messages_key="history"
+    )
+
+    response = chain_with_history.invoke(
+        {
+            "context": context,
+            "input": query,
+        },
+        config={
+            "configurable": {
+                "session_id": session_id
+            }
+        }
+    )
 
     # Geminiの回答を表示
     await cl.Message(content=response.content).send()
