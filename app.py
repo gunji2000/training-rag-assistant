@@ -59,6 +59,16 @@ async def on_chat_start():
     )
     docs = splitter.split_documents(documents)
     
+    # ===== 確認用 =====
+    print(f"チャンク数: {len(docs)}")
+
+    for i, doc in enumerate(docs):
+        print("-" * 50)
+        print(f"Chunk {i}")
+        print(doc.metadata)
+        print(doc.page_content[:100])
+    # ==================
+
     # ベクトル化
     vectorstore = Chroma.from_documents(
         docs,
@@ -74,10 +84,14 @@ async def main(message: cl.Message):
     query = message.content
 
     # ユーザーセッションの取得
-    session_id = cl.context.sessionid
+    session_id = cl.context.session.id
 
     # 類似検索
     docs = vectorstore.similarity_search(query, k=3)
+    print(f"検索結果数: {len(docs)}")
+    for i, doc in enumerate(docs):
+        print(f"検索結果 {i}: {doc.page_content[:100]}...")
+
     # 検索結果を結合してコンテキストとして使用
     context = "\n\n".join([d.page_content for d in docs])
 
