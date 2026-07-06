@@ -69,6 +69,27 @@ async def on_chat_start():
         print(doc.page_content[:100])
     # ==================
 
+    # ===== Embedding確認 =====
+    text = "VPNとは何ですか？"
+
+    vector = embeddings.embed_query(text)
+
+    print("=" * 50)
+    print("Embedding確認")
+    print(f"型: {type(vector)}")
+    print(f"ベクトルの次元数: {len(vector)}")
+    print(f"先頭10個: {vector[:10]}")
+
+    text1 = "VPNとは何ですか？"
+    text2 = "VPNについて教えてください。"
+
+    vector1 = embeddings.embed_query(text1)
+    vector2 = embeddings.embed_query(text2)
+
+    print(f"text1の先頭5個: {vector1[:5]}")
+    print(f"text2の先頭5個: {vector2[:5]}")
+    # =======================
+
     # ベクトル化
     vectorstore = Chroma.from_documents(
         docs,
