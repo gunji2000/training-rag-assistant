@@ -30,6 +30,27 @@ embeddings = GoogleGenerativeAIEmbeddings(
     google_api_key=api_key
 )
 
+# プロンプトテンプレートを使用してプロンプトを作成
+prompt = ChatPromptTemplate.from_messages([
+    ("system", """
+    あなたは社内ドキュメント検索AIです。
+        
+    以下のコンテキストのみを利用して回答してください。
+
+    コンテキストに記載されていない内容は推測せず、
+    「資料内には該当する情報が見つかりませんでした。」
+    と回答してください。
+        
+        ### コンテキスト
+        {context}
+        """),
+    MessagesPlaceholder(variable_name="history"),
+    ("human", "{input}")
+])
+
+# プロンプトとLLMまでのパイプラインを作成
+chain = prompt | llm
+
 # グローバル保存(簡易RAG)
 vectorstore = None
 retriever = None
@@ -42,6 +63,28 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
     if session_id not in store:
         store[session_id] = ChatMessageHistory()
     return store[session_id]
+
+# 履歴付きのRunnableを作成
+chain_with_history = RunnableWithMessageHistory(
+    chain,
+    get_session_history,
+    input_message_key="input",
+    history_messages_key="history"
+)
+
+# 検索結果を結合してコンテキストとして使用
+def create_context(docs):
+    context = "\n\n".join([d.page_content for d in docs])
+    return context
+
+# 検索結果の出典を作成
+def create_sources(docs):
+    sources = set()
+    for doc in docs:
+        source = doc.metadata.get("source", "Unknown")
+        page = doc.metadata.get("page_label", "?")
+        sources.add((source, page))
+    return sources
 
 # 初期化
 @cl.on_chat_start
@@ -106,7 +149,6 @@ async def on_chat_start():
 # メイン処理
 @cl.on_message
 async def main(message: cl.Message):
-    global vectorstore, retriever
     query = message.content
 
     # ユーザーセッションの取得
@@ -118,47 +160,10 @@ async def main(message: cl.Message):
     for i, doc in enumerate(docs):
         print(f"検索結果 {i}: {doc.page_content[:100]}...")
 
-    # 検索結果を結合してコンテキストとして使用
-    context = "\n\n".join([d.page_content for d in docs])
-
-    sources = set()
-    for doc in docs:
-        source = doc.metadata.get("source", "Unknown")
-        page = doc.metadata.get("page_label", "?")
-
-        sources.add((source, page))
-
-    # プロンプトテンプレートを使用してプロンプトを作成
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """
-        あなたは社内ドキュメント検索AIです。
-         
-        以下のコンテキストのみを利用して回答してください。
-
-        コンテキストに記載されていない内容は推測せず、
-        「資料内には該当する情報が見つかりませんでした。」
-        と回答してください。
-         
-         ### コンテキスト
-         {context}
-         """),
-        MessagesPlaceholder(variable_name="history"),
-        ("human", "{input}")
-    ])
-
-    chain = prompt | llm
-
-    chain_with_history = RunnableWithMessageHistory(
-        chain,
-        get_session_history,
-        input_message_key="input",
-        history_messages_key="history"
-    )
-
     try:
         response = chain_with_history.invoke(
             {
-                "context": context,
+                "context": create_context(docs),
                 "input": query,
             },
             config={
@@ -172,7 +177,7 @@ async def main(message: cl.Message):
         await cl.Message(content="エラーが発生しました").send()
         return
 
-    # ====================
+    # ==Retriever検索結果について出力する==
 
     debug_text = "\n\n---\n Retriever検索結果:\n"
 
@@ -184,10 +189,10 @@ async def main(message: cl.Message):
     answer = response.content
     answer += "\n\n---\n参考文献:\n"
 
-    for source, page in sorted(sources):
+    for source, page in sorted(create_sources(docs)):
         answer += f"- {source} ({page}ページ)\n"
 
     # Geminiの回答を表示
-    await cl.Message(content=debug_text).send()
+    await cl.Message(content=debug_text).send() # debug用
     await cl.Message(content=answer).send()
 
