@@ -32,6 +32,7 @@ embeddings = GoogleGenerativeAIEmbeddings(
 
 # グローバル保存(簡易RAG)
 vectorstore = None
+retriever = None
 
 # 履歴の辞書
 store = {}
@@ -46,7 +47,7 @@ def get_session_history(session_id: str) -> BaseChatMessageHistory:
 @cl.on_chat_start
 async def on_chat_start():
 
-    global vectorstore
+    global vectorstore, retriever
 
     # PDFロード
     loader = PyPDFLoader("data/test.pdf")
@@ -59,6 +60,16 @@ async def on_chat_start():
     )
     docs = splitter.split_documents(documents)
     
+    # ベクトル化
+    vectorstore = Chroma.from_documents(
+        docs,
+        embeddings
+    )
+
+    retriever = vectorstore.as_retriever(
+        search_kwargs={"k": 5}  # 類似検索の件数を指定
+    )
+
     # ===== 確認用 =====
     print(f"チャンク数: {len(docs)}")
 
@@ -90,25 +101,19 @@ async def on_chat_start():
     print(f"text2の先頭5個: {vector2[:5]}")
     # =======================
 
-    # ベクトル化
-    vectorstore = Chroma.from_documents(
-        docs,
-        embeddings
-    )
-
     await cl.Message(content="RAG初期化完了 (PDF読み込み済み)").send()
 
 # メイン処理
 @cl.on_message
 async def main(message: cl.Message):
-    global vectorstore
+    global vectorstore, retriever
     query = message.content
 
     # ユーザーセッションの取得
     session_id = cl.context.session.id
 
     # 類似検索
-    docs = vectorstore.similarity_search(query, k=3)
+    docs = retriever.invoke(query)
     print(f"検索結果数: {len(docs)}")
     for i, doc in enumerate(docs):
         print(f"検索結果 {i}: {doc.page_content[:100]}...")
@@ -116,11 +121,24 @@ async def main(message: cl.Message):
     # 検索結果を結合してコンテキストとして使用
     context = "\n\n".join([d.page_content for d in docs])
 
+    sources = set()
+    for doc in docs:
+        source = doc.metadata.get("source", "Unknown")
+        page = doc.metadata.get("page_label", "?")
+
+        sources.add((source, page))
+
     # プロンプトテンプレートを使用してプロンプトを作成
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
-         以下の情報を参考にして回答してください。
+        あなたは社内ドキュメント検索AIです。
+         
+        以下のコンテキストのみを利用して回答してください。
 
+        コンテキストに記載されていない内容は推測せず、
+        「資料内には該当する情報が見つかりませんでした。」
+        と回答してください。
+         
          ### コンテキスト
          {context}
          """),
@@ -137,18 +155,39 @@ async def main(message: cl.Message):
         history_messages_key="history"
     )
 
-    response = chain_with_history.invoke(
-        {
-            "context": context,
-            "input": query,
-        },
-        config={
-            "configurable": {
-                "session_id": session_id
+    try:
+        response = chain_with_history.invoke(
+            {
+                "context": context,
+                "input": query,
+            },
+            config={
+                "configurable": {
+                    "session_id": session_id
+                }
             }
-        }
-    )
+        )
+    except Exception as e:
+        print(f"エラー: {e}")
+        await cl.Message(content="エラーが発生しました").send()
+        return
+
+    # ====================
+
+    debug_text = "\n\n---\n Retriever検索結果:\n"
+
+    for i, doc in enumerate(docs):
+        debug_text += f"\nChunk {i}: {doc.page_content[:100]}\n\n"
+
+    # ====================
+
+    answer = response.content
+    answer += "\n\n---\n参考文献:\n"
+
+    for source, page in sorted(sources):
+        answer += f"- {source} ({page}ページ)\n"
 
     # Geminiの回答を表示
-    await cl.Message(content=response.content).send()
+    await cl.Message(content=debug_text).send()
+    await cl.Message(content=answer).send()
 
