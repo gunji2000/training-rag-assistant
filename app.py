@@ -1,3 +1,4 @@
+import base64
 import os
 import chainlit as cl
 
@@ -11,7 +12,6 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain_community.chat_message_histories import ChatMessageHistory
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import BaseChatMessageHistory
-import base64
 
 from config import (
     MODEL_NAME,
