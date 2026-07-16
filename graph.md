@@ -59,3 +59,42 @@ Context --> LLM
 LLM --> Sources
 Sources --> State
 ```
+
+## 自分で設計してみる
+- 処理フロー図
+```mermaid
+flowchart TD
+S[(State)]
+
+A[Retriever Node]
+B[Context Node]
+C[Generation Node]
+D[Source Node]
+
+S --> |query|A
+A --> |docs|B
+B --> |context|C
+C --> |answer|D
+```
+- LangGraph内部設計図
+```mermaid
+flowchart TD
+S[(State)]
+
+A[Retriever Node]
+B[Context Node]
+C[Generation Node]
+D[Source Node]
+
+S --> A
+A -->|docs追加| S
+
+S --> B
+B -->|context追加| S
+
+S --> C
+C -->|answer追加| S
+
+S --> D
+D --> END
+```
