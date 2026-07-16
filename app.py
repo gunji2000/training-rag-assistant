@@ -17,6 +17,8 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from google import genai
 from google.genai import types
 from typing import Any
+from typing import TypedDict
+from langgraph.graph import StateGraph, START, END
 
 from config import (
     MODEL_NAME,
@@ -26,6 +28,61 @@ from config import (
     SEARCH_K,
     SYSTEM_PROMPT,
 )
+
+class RAGState(TypedDict):
+    query: str
+    session_id: str
+    docs: list[Document]
+    context: str
+    answer: Any
+
+def retrieve_node(state: RAGState):
+    docs = search_documents(
+        retriever,
+        state["query"]
+    )
+
+    return {
+        "docs": docs
+    }
+
+def generation_node(state: RAGState):
+
+    context = create_context(state["docs"])
+
+    response = generate_answer(
+        chain_with_history,
+        state["docs"],
+        state["query"],
+        state["session_id"]
+    )
+
+    return {
+        "context": context,
+        "answer": response
+    }
+
+graph_builder = StateGraph(RAGState)
+
+graph_builder.add_node("retrieve", retrieve_node)
+graph_builder.add_node("generate", generation_node)
+
+graph_builder.add_edge(
+    START,
+    "retrieve"
+)
+
+graph_builder.add_edge(
+    "retrieve",
+    "generate"
+)
+
+graph_builder.add_edge(
+    "generate",
+    END
+)
+
+graph = graph_builder.compile()
 
 # ==============================
 # 環境設定・API接続設定
