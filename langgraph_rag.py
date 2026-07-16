@@ -99,6 +99,12 @@ def source_node(state: RAGState):
     }
 
 
+def should_generate(state: RAGState):
+    if len(state["docs"]) == 0:
+        return "end"
+    return "generate"
+
+
 def load_all_documents(file_dir: str) -> list[Document]:
     all_documents = []
     file_list = os.listdir(file_dir)
@@ -200,9 +206,13 @@ graph_builder.add_edge(
     "retrieve"
 )
 
-graph_builder.add_edge(
+graph_builder.add_conditional_edges(
     "retrieve",
-    "generate"
+    should_generate,
+    {
+        "end": END,
+        "generate": "generate"
+    }
 )
 
 graph_builder.add_edge(
@@ -219,7 +229,7 @@ graph = graph_builder.compile()
 
 result = graph.invoke(
     {
-        "query": "RAGとは？",
+        "query": "あいうえおかきくけこ",
         "session_id": "test",
         "docs": [],
         # "context": "",
