@@ -1,4 +1,6 @@
 import os
+import chainlit as cl
+
 from dotenv import load_dotenv
 from typing import Any
 from langchain_core.documents import Document
@@ -46,7 +48,6 @@ class RAGState(TypedDict):
     query: str
     session_id: str
     docs: list[Document]
-    # context: str
     answer: Any
 
 def retrieve_node(state: RAGState):
@@ -98,9 +99,14 @@ def source_node(state: RAGState):
         "answer": answer
     }
 
+def no_answer_node(state):
+    return {
+        "answer": "検索結果がありませんでした。"
+    }
+
 
 def should_generate(state: RAGState):
-    if len(state["docs"]) == 0:
+    if state["query"] == "終了":
         return "end"
     return "generate"
 
@@ -200,6 +206,7 @@ graph_builder = StateGraph(RAGState)
 graph_builder.add_node("retrieve", retrieve_node)
 graph_builder.add_node("generate", generation_node)
 graph_builder.add_node("source", source_node)
+graph_builder.add_node("no_answer", no_answer_node)
 
 graph_builder.add_edge(
     START,
@@ -210,9 +217,14 @@ graph_builder.add_conditional_edges(
     "retrieve",
     should_generate,
     {
-        "end": END,
+        "end": "no_answer",
         "generate": "generate"
     }
+)
+
+graph_builder.add_edge(
+    "no_answer",
+    END
 )
 
 graph_builder.add_edge(
@@ -227,14 +239,27 @@ graph_builder.add_edge(
 
 graph = graph_builder.compile()
 
-result = graph.invoke(
-    {
-        "query": "あいうえおかきくけこ",
-        "session_id": "test",
-        "docs": [],
-        # "context": "",
-        "answer": None
-    }
-)
+if __name__ == "__main__":
+    result = graph.invoke(
+        {
+            "query": "あいうえおかきくけこ",
+            "session_id": "test",
+            "docs": [],
+            "answer": None
+        }
+    )
 
-print(result)
+@cl.on_message
+async def main(message):
+    result = graph.invoke(
+        {
+            "query": message.content,
+            "session_id": cl.context.session.id,
+            "docs": [],
+            "answer": None
+        }
+    )
+
+    await cl.Message(
+        content=result["answer"]
+    ).send()
