@@ -97,18 +97,22 @@ training-rag-assistant/
 
 ### LangGraph
 
-- LangGraphによるRAG Workflow構築
+- StateGraphによるワークフロー構築
+- MessagesStateによる会話履歴管理
 - StateによるNode間データ共有
-- Retrieve Node
-- Generation Node
-- Source Node
+- Node単位での責務分離
+- Edgeによる処理フロー管理
 - Conditional Edgeによる条件分岐
-- NoAnswer Nodeによる検索失敗時の処理
+- InMemorySaver(Checkpointer)によるState保存
+- thread_idによる会話管理
 
 ### チャット機能
 
 - Gemini API連携
-- 会話履歴保持
+- LangGraph Memoryによる会話履歴管理
+- MessagesStateを利用したメッセージ保持
+- InMemorySaver(Checkpointer)によるState管理
+- thread_id単位での会話履歴復元
 - 質問内容に応じた回答生成
 
 ### UI・管理機能
@@ -125,6 +129,18 @@ training-rag-assistant/
 - 画像ファイル読み込み
 - Base64形式への変換処理
 - Gemini Vision対応準備
+
+
+## 💾 LangGraph Memory
+
+本プロジェクトではLangGraph Memoryを利用して会話履歴を管理している。
+
+- MessagesStateを継承したStateを利用
+- InMemorySaverをCheckpointerとして利用
+- thread_id単位でStateを保存・復元
+- Reducerによりmessagesを上書きではなく追加して保持
+
+これにより、RunnableWithMessageHistoryを利用せずにLangGraph標準のMemory管理へ移行している。
 
 ---
 
@@ -154,16 +170,15 @@ training-rag-assistant/
 
 ## 🔜 今後の開発予定
 
-- LangGraph Memoryへの移行
-- RunnableWithMessageHistoryの置き換え
 - Retriever検索精度改善
+- Similarity Threshold導入
 - Query Rewrite
 - Reranker導入
+- LLM評価
 - FastAPIによるAPI化
-- SQLiteによる会話履歴永続化
+- SQLiteによる履歴永続化
 - Docker環境構築
 - Gemini Vision対応
-- マルチモーダルRAG
 - Agentic RAGへの発展
 
 ---
@@ -172,6 +187,14 @@ training-rag-assistant/
 
 本プロジェクトは、実務で利用されるAIアプリケーションを想定し、段階的に機能を拡張している。
 
-現在はLangChainによる基本的なRAG構成に加え、LangGraphを用いたワークフロー管理を導入し、State・Node・Edgeによる処理の分離や条件分岐を実装している。
+現在はLangGraphを中心とした構成へ移行し、
 
-今後はFastAPIによるAPI化、LangGraph Memoryによる会話履歴管理、Docker環境構築などを追加し、より実務に近いAIアプリケーションへ発展させる予定である。
+- State
+- Node
+- Edge
+- Conditional Edge
+- LangGraph Memory
+
+を利用したワークフロー管理を実装している。
+
+また、MessagesState・Reducer・Checkpointerを利用した会話履歴管理へ移行し、LangGraph標準のMemory管理を採用している。
