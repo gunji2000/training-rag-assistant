@@ -11,9 +11,12 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.vectorstores import VectorStoreRetriever
 from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.prompts import MessagesPlaceholder
-from langchain_core.runnables.history import RunnableWithMessageHistory
-from langchain_community.chat_message_histories import ChatMessageHistory
+from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.graph import MessagesState
+from langchain_core.messages import HumanMessage
+
 from typing import TypedDict
+from langgraph.graph import MessagesState
 from langgraph.graph import StateGraph, START, END
 
 from config import (
@@ -39,21 +42,21 @@ embeddings = GoogleGenerativeAIEmbeddings(
 )
 prompt = ChatPromptTemplate.from_messages([     # プロンプトテンプレートを使用してプロンプトを作成
     ("system", SYSTEM_PROMPT),
-    MessagesPlaceholder(variable_name="history"),
+    MessagesPlaceholder(variable_name="messages"),
     ("human", "{input}")
 ])
 chain = prompt | llm 
 
-class RAGState(TypedDict):
+class RAGState(MessagesState):
     query: str
-    session_id: str
     docs: list[Document]
     answer: Any
 
 def retrieve_node(state: RAGState):
-    print("=== Retrieve Node ===")
-    print(f"query: {state['query']}")
-    print(f"docs(before): {len(state['docs'])}")
+    print("===== Retrieve =====")
+    print(state["messages"])
+    print(state["query"])
+    print(state["docs"])
 
     docs = search_documents(
         retriever,
@@ -67,20 +70,22 @@ def retrieve_node(state: RAGState):
 
 def generation_node(state: RAGState):
     print("=== Generation Node ===")
-    print(f"query: {state['query']}")
-    print(f"docs: {len(state['docs'])}")
+    print("messages:")
+    for message in state["messages"]:
+        print(type(message).__name__, message.content)
 
     response = generate_answer(
-        chain_with_history,
+        chain,
         state["docs"],
         state["query"],
-        state["session_id"]
+        state["messages"]
     )
     print(f"answer type: {type(response).__name__}")
     print(f"answer: {response.content}")
 
     return {
-        "answer": response
+        "answer": response,
+        "messages": [response]
     }
 
 def source_node(state: RAGState):
@@ -154,25 +159,15 @@ def create_context(docs: list[Document]) -> str:       # 検索結果を結合�
     context = "\n\n".join([d.page_content for d in docs])
     return context
 
-def generate_answer(chain_with_history, docs: list[Document], query: str, session_id: str) -> Any:   # 検索結果をコンテキスト形式に変換し、LLMへ問い合わせる関数
-    response = chain_with_history.invoke(
-            {
-                "context": create_context(docs),
-                "input": query,
-            },
-            config={
-                "configurable": {
-                    "session_id": session_id
-                }
-            }
-        )
+def generate_answer(chain, docs: list[Document], query: str, messages) -> Any:   # 検索結果をコンテキスト形式に変換し、LLMへ問い合わせる関数
+    response = chain.invoke(
+        {
+            "context": create_context(docs),
+            "input": query,
+            "messages": messages
+        }
+    )
     return response
-
-store = {}                  # 履歴の辞書
-def get_session_history(session_id: str) :     # ユーザーIDがなければ枠を作る
-    if session_id not in store:
-        store[session_id] = ChatMessageHistory()
-    return store[session_id]
 
 def create_sources(docs: list[Document]):       # 検索結果の出典を作成
     sources = set()
@@ -194,12 +189,6 @@ documents = load_all_documents("data")
 docs = split_documents(documents)
 vectorstore = create_vectorstore(docs, embeddings)
 retriever = create_retriever(vectorstore)
-chain_with_history = RunnableWithMessageHistory(
-    chain,
-    get_session_history,
-    input_message_key="input",
-    history_messages_key="history"
-)
 
 graph_builder = StateGraph(RAGState)
 
@@ -237,26 +226,28 @@ graph_builder.add_edge(
     END
 )
 
-graph = graph_builder.compile()
+memory = InMemorySaver()
 
-if __name__ == "__main__":
-    result = graph.invoke(
-        {
-            "query": "あいうえおかきくけこ",
-            "session_id": "test",
-            "docs": [],
-            "answer": None
-        }
-    )
+graph = graph_builder.compile(
+    checkpointer=memory
+)
+
 
 @cl.on_message
 async def main(message):
     result = graph.invoke(
         {
+            "messages": [
+                HumanMessage(content=message.content)
+            ],
             "query": message.content,
-            "session_id": cl.context.session.id,
             "docs": [],
             "answer": None
+        },
+        config={
+            "configurable": {
+                "thread_id": cl.context.session.id
+            }
         }
     )
 
